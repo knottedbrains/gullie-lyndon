@@ -1,0 +1,40 @@
+{
+  "mcpServers": {
+    "gullie-moves": {
+      "command": "npm",
+      "args": ["run", "mcp:moves"],
+      "env": {
+        "DATABASE_URL": "postgresql://postgres:password@localhost:5432/gullie_agentmail"
+      }
+    },
+    "gullie-housing": {
+      "command": "npm",
+      "args": ["run", "mcp:housing"],
+      "env": {
+        "DATABASE_URL": "postgresql://postgres:password@localhost:5432/gullie_agentmail"
+      }
+    },
+    "gullie-services": {
+      "command": "npm",
+      "args": ["run", "mcp:services"],
+      "env": {
+        "DATABASE_URL": "postgresql://postgres:password@localhost:5432/gullie_agentmail"
+      }
+    },
+    "gullie-financial": {
+      "command": "npm",
+      "args": ["run", "mcp:financial"],
+      "env": {
+        "DATABASE_URL": "postgresql://postgres:password@localhost:5432/gullie_agentmail"
+      }
+    },
+    "gullie-operations": {
+      "command": "npm",
+      "args": ["run", "mcp:operations"],
+      "env": {
+        "DATABASE_URL": "postgresql://postgres:password@localhost:5432/gullie_agentmail"
+      }
+    }
+  }
+}
+
