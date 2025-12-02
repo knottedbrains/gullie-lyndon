@@ -18,3 +18,14 @@ export const employers = pgTable("employers", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const vendors = pgTable("vendors", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  website: text("website"),
+  serviceTypes: jsonb("service_types").$type<string[]>().default([]),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+

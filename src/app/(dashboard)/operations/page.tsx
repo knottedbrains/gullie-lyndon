@@ -4,7 +4,15 @@ import { trpc } from "@/utils/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Search, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Search, AlertTriangle, CheckCircle2, Clock, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 export default function OperationsPage() {
@@ -61,36 +69,50 @@ export default function OperationsPage() {
               Requests requiring employer approval
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-0">
             {exceptionsLoading ? (
-              <div className="text-sm text-muted-foreground">Loading...</div>
-            ) : exceptions && exceptions.length > 0 ? (
-              <div className="space-y-3">
-                {exceptions.map((exception) => (
-                  <div
-                    key={exception.id}
-                    className="flex items-center justify-between p-3 rounded-lg border"
-                  >
-                    <div>
-                      <p className="text-sm font-medium">{exception.requestedService}</p>
-                      <p className="text-xs text-muted-foreground">{exception.serviceType}</p>
-                    </div>
-                    <Badge
-                      variant={
-                        exception.status === "approved"
-                          ? "default"
-                          : exception.status === "denied"
-                          ? "destructive"
-                          : "outline"
-                      }
-                    >
-                      {exception.status}
-                    </Badge>
-                  </div>
-                ))}
+              <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                Loading...
               </div>
+            ) : exceptions && exceptions.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Service</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="text-right">Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {exceptions.map((exception) => (
+                    <TableRow key={exception.id}>
+                      <TableCell className="font-medium">
+                        {exception.requestedService}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {exception.serviceType}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge
+                          variant={
+                            exception.status === "approved"
+                              ? "default"
+                              : exception.status === "denied"
+                              ? "destructive"
+                              : "outline"
+                          }
+                          className="capitalize"
+                        >
+                          {exception.status}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             ) : (
-              <div className="text-sm text-muted-foreground">
+              <div className="py-8 text-center text-sm text-muted-foreground">
                 {searchMoveId ? "No exceptions found" : "Enter a move ID to search"}
               </div>
             )}

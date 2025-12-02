@@ -1,5 +1,4 @@
 import { createTRPCRouter } from "../trpc";
-import { exampleRouter } from "./example";
 import { movesRouter } from "./moves.router";
 import { housingRouter } from "./housing.router";
 import { servicesRouter } from "./services.router";
@@ -7,10 +6,12 @@ import { financialRouter } from "./financial.router";
 import { operationsRouter } from "./operations.router";
 import { employeesRouter } from "./employees.router";
 import { employersRouter } from "./employers.router";
+import { vendorsRouter } from "./vendors.router";
 import { chatRouter } from "./chat.router";
+import { usersRouter } from "./users.router";
+import { searchRouter } from "./search.router";
 
 export const appRouter = createTRPCRouter({
-  example: exampleRouter,
   moves: movesRouter,
   housing: housingRouter,
   services: servicesRouter,
@@ -18,7 +19,10 @@ export const appRouter = createTRPCRouter({
   operations: operationsRouter,
   employees: employeesRouter,
   employers: employersRouter,
+  vendors: vendorsRouter,
   chat: chatRouter,
+  users: usersRouter,
+  search: searchRouter,
 });
 
 export type AppRouter = typeof appRouter;

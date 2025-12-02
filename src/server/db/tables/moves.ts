@@ -1,4 +1,5 @@
 import { pgTable, text, timestamp, uuid, boolean, decimal, jsonb } from "drizzle-orm/pg-core";
+import { relations } from "drizzle-orm";
 import { employees } from "./core";
 import { employers } from "./core";
 import { policies } from "./policies";
@@ -35,3 +36,17 @@ export const moves = pgTable("moves", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const movesRelations = relations(moves, ({ one }) => ({
+  employee: one(employees, {
+    fields: [moves.employeeId],
+    references: [employees.id],
+  }),
+  employer: one(employers, {
+    fields: [moves.employerId],
+    references: [employers.id],
+  }),
+  policy: one(policies, {
+    fields: [moves.policyId],
+    references: [policies.id],
+  }),
+}));

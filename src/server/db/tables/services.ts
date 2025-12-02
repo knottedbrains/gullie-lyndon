@@ -1,5 +1,6 @@
 import { pgTable, text, timestamp, uuid, boolean, decimal, jsonb } from "drizzle-orm/pg-core";
 import { moves } from "./moves";
+import { vendors } from "./core";
 import { serviceTypeEnum, serviceStatusEnum } from "../enums";
 
 export const services = pgTable("services", {
@@ -11,6 +12,7 @@ export const services = pgTable("services", {
   approved: boolean("approved").default(false).notNull(),
   approvedBy: uuid("approved_by"),
   approvedAt: timestamp("approved_at"),
+  vendorId: uuid("vendor_id").references(() => vendors.id),
   vendorName: text("vendor_name"),
   cost: decimal("cost", { precision: 10, scale: 2 }),
   bookingDate: timestamp("booking_date"),

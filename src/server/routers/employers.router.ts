@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "../trpc";
-import { employers, policies } from "../db/schema";
+import { employers, policies, moves } from "../db/schema";
 import { eq, desc, ilike, or } from "drizzle-orm";
 
 export const employersRouter = createTRPCRouter({
@@ -103,6 +103,27 @@ export const employersRouter = createTRPCRouter({
           })
           .returning();
         return newPolicy;
+      }),
+
+    getByMoveId: publicProcedure
+      .input(z.object({ moveId: z.string().uuid() }))
+      .query(async ({ ctx, input }) => {
+        // First get the move to find the policyId
+        const move = await ctx.db.query.moves.findFirst({
+          where: eq(moves.id, input.moveId),
+        });
+        
+        if (!move || !move.policyId) {
+          return null;
+        }
+
+        const [policy] = await ctx.db
+          .select()
+          .from(policies)
+          .where(eq(policies.id, move.policyId))
+          .limit(1);
+        
+        return policy || null;
       }),
   }),
 });

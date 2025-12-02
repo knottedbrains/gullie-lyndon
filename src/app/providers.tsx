@@ -1,7 +1,7 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { httpBatchLink, splitLink, httpLink } from "@trpc/client";
+import { httpBatchLink } from "@trpc/client";
 import { useState } from "react";
 import superjson from "superjson";
 import { trpc } from "@/utils/trpc";
@@ -30,20 +30,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [trpcClient] = useState(() =>
     trpc.createClient({
       links: [
-        splitLink({
-          condition: (op) => op.type === "subscription",
-          true: httpLink({
-            url: `${getBaseUrl()}/api/trpc/stream`,
-            fetch(url, options) {
-              return fetch(url, {
-                ...options,
-                credentials: "include",
-              });
-            },
-          }),
-          false: httpBatchLink({
-            url: `${getBaseUrl()}/api/trpc`,
-          }),
+        httpBatchLink({
+          url: `${getBaseUrl()}/api/trpc`,
+          // Include cookies in requests
+          fetch(url, options) {
+            return fetch(url, {
+              ...options,
+              credentials: "include",
+            });
+          },
         }),
       ],
       transformer: superjson,

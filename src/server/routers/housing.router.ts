@@ -1,53 +1,17 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "../trpc";
-import { housingOptions, moves } from "../db/schema";
-import { eq, and, gte, lte, desc } from "drizzle-orm";
-
-const housingTypeSchema = z.enum([
-  "hotel",
-  "serviced_apartment",
-  "airbnb",
-  "apartment",
-  "condo",
-  "single_family_home",
-]);
-
-const matchCategorySchema = z.enum(["optimal", "strong", "essential"]);
-
-const createHousingOptionSchema = z.object({
-  moveId: z.string().uuid(),
-  type: housingTypeSchema,
-  isTemporary: z.boolean(),
-  address: z.string().min(1),
-  city: z.string().min(1),
-  state: z.string().optional(),
-  zipCode: z.string().optional(),
-  price: z.string(),
-  pricePerMonth: z.string().optional(),
-  pricePerNight: z.string().optional(),
-  commuteToOffice: z.number().optional(),
-  commuteMode: z.string().optional(),
-  parkingAvailable: z.boolean().default(false),
-  leaseTerms: z.string().optional(),
-  minStay: z.number().optional(),
-  availabilityStartDate: z.date().optional(),
-  availabilityEndDate: z.date().optional(),
-  neighborhoodRating: z.string().optional(),
-  matchCategory: matchCategorySchema.optional(),
-});
+import { housingOptions } from "../db/schema";
+import { eq, and, lte, desc } from "drizzle-orm";
+import {
+  createHousingOptionSchema,
+  listHousingSchema,
+  searchHousingSchema,
+  selectHousingSchema,
+} from "../schemas/housing";
 
 export const housingRouter = createTRPCRouter({
   list: publicProcedure
-    .input(
-      z.object({
-        moveId: z.string().uuid().optional(),
-        type: housingTypeSchema.optional(),
-        isTemporary: z.boolean().optional(),
-        matchCategory: matchCategorySchema.optional(),
-        minPrice: z.string().optional(),
-        maxPrice: z.string().optional(),
-      })
-    )
+    .input(listHousingSchema)
     .query(async ({ ctx, input }) => {
       const conditions = [];
       if (input.moveId) {
@@ -116,7 +80,7 @@ export const housingRouter = createTRPCRouter({
     }),
 
   select: publicProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(selectHousingSchema)
     .mutation(async ({ ctx, input }) => {
       const [updated] = await ctx.db
         .update(housingOptions)
@@ -133,14 +97,7 @@ export const housingRouter = createTRPCRouter({
     }),
 
   search: publicProcedure
-    .input(
-      z.object({
-        moveId: z.string().uuid(),
-        city: z.string().optional(),
-        maxCommute: z.number().optional(),
-        budget: z.string().optional(),
-      })
-    )
+    .input(searchHousingSchema)
     .query(async ({ ctx, input }) => {
       const conditions = [eq(housingOptions.moveId, input.moveId)];
       if (input.city) {
@@ -160,4 +117,3 @@ export const housingRouter = createTRPCRouter({
       return result;
     }),
 });
-

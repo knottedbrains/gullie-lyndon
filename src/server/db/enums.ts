@@ -46,3 +46,9 @@ export const policyCoverageEnum = pgEnum("policy_coverage", [
   "requires_approval",
 ]);
 
+export const userRoleEnum = pgEnum("user_role", [
+  "employee",
+  "company",
+  "vendor",
+  "admin",
+]);

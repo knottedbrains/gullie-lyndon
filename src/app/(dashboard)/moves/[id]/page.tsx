@@ -1,15 +1,17 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { trpc } from "@/utils/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, MessageSquare } from "lucide-react";
 import Link from "next/link";
 
 export default function MoveDetailPage() {
   const params = useParams();
+  const router = useRouter();
   
   // Safely extract id from params
   let id: string | undefined;
@@ -21,13 +23,29 @@ export default function MoveDetailPage() {
     }
   }
   
+  // Redirect to new page if id is "new"
+  useEffect(() => {
+    if (id === "new") {
+      router.replace("/moves/new");
+    }
+  }, [id, router]);
+  
   const { data: move, isLoading } = trpc.moves.getById.useQuery(
     { id: id! },
-    { enabled: !!id && typeof id === "string" }
+    { enabled: !!id && typeof id === "string" && id !== "new" }
   );
 
   if (!id || typeof id !== "string") {
     return <div className="p-6">Invalid move ID</div>;
+  }
+
+  // Show loading while redirecting
+  if (id === "new") {
+    return (
+      <div className="p-6">
+        <p>Redirecting...</p>
+      </div>
+    );
   }
 
   if (isLoading) {
@@ -51,6 +69,14 @@ export default function MoveDetailPage() {
             {move.originCity} → {move.destinationCity}
           </h1>
           <p className="text-muted-foreground">Move Details</p>
+        </div>
+        <div className="ml-auto">
+          <Link href={`/chat?moveId=${move.id}`}>
+            <Button>
+              <MessageSquare className="mr-2 h-4 w-4" />
+              Chat about this move
+            </Button>
+          </Link>
         </div>
       </div>
 

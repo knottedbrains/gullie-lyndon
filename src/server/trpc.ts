@@ -2,12 +2,13 @@ import { initTRPC } from "@trpc/server";
 import { ZodError } from "zod";
 import superjson from "superjson";
 import { db } from "./db";
+import { getCurrentUser, type User } from "@/lib/auth";
 
-export const createTRPCContext = async () => {
+export const createTRPCContext = async (cookies?: { get: (name: string) => { value: string } | undefined }) => {
+  const user = await getCurrentUser(cookies);
   return {
     db,
-    // Add auth context here when ready
-    // user: await getUser(),
+    user: user as User | null,
   };
 };
 

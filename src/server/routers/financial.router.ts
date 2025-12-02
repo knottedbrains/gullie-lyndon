@@ -1,20 +1,21 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "../trpc";
-import { invoices, taxGrossUps, moves } from "../db/schema";
+import { invoices, taxGrossUps } from "../db/schema";
 import { eq, and, desc } from "drizzle-orm";
-
-const paymentStatusSchema = z.enum(["pending", "paid", "disputed"]);
+import {
+  approveTaxGrossUpSchema,
+  calculateTaxGrossUpSchema,
+  createInvoiceSchema,
+  listInvoicesSchema,
+  listTaxGrossUpsSchema,
+  paymentStatusSchema,
+  updatePaymentStatusSchema,
+} from "../schemas/financial";
 
 export const financialRouter = createTRPCRouter({
   invoices: createTRPCRouter({
     list: publicProcedure
-      .input(
-        z.object({
-          moveId: z.string().uuid().optional(),
-          employerId: z.string().uuid().optional(),
-          paymentStatus: paymentStatusSchema.optional(),
-        })
-      )
+      .input(listInvoicesSchema)
       .query(async ({ ctx, input }) => {
         const conditions = [];
         if (input.moveId) {
@@ -50,37 +51,7 @@ export const financialRouter = createTRPCRouter({
       }),
 
     create: publicProcedure
-      .input(
-        z.object({
-          moveId: z.string().uuid(),
-          employerId: z.string().uuid(),
-          invoiceNumber: z.string().min(1),
-          subtotal: z.string(),
-          gullieFee: z.string(),
-          grossUpAmount: z.string().optional(),
-          total: z.string(),
-          vendorReceipts: z
-            .array(
-              z.object({
-                vendor: z.string(),
-                service: z.string(),
-                amount: z.string(),
-                receiptUrl: z.string().optional(),
-              })
-            )
-            .optional(),
-          serviceSummary: z
-            .array(
-              z.object({
-                service: z.string(),
-                vendor: z.string(),
-                date: z.string(),
-                amount: z.string(),
-              })
-            )
-            .optional(),
-        })
-      )
+      .input(createInvoiceSchema)
       .mutation(async ({ ctx, input }) => {
         const [newInvoice] = await ctx.db
           .insert(invoices)
@@ -100,12 +71,7 @@ export const financialRouter = createTRPCRouter({
       }),
 
     updatePaymentStatus: publicProcedure
-      .input(
-        z.object({
-          id: z.string().uuid(),
-          paymentStatus: paymentStatusSchema,
-        })
-      )
+      .input(updatePaymentStatusSchema)
       .mutation(async ({ ctx, input }) => {
         const [updated] = await ctx.db
           .update(invoices)
@@ -125,7 +91,7 @@ export const financialRouter = createTRPCRouter({
 
   taxGrossUps: createTRPCRouter({
     list: publicProcedure
-      .input(z.object({ moveId: z.string().uuid() }))
+      .input(listTaxGrossUpsSchema)
       .query(async ({ ctx, input }) => {
         const result = await ctx.db
           .select()
@@ -136,17 +102,7 @@ export const financialRouter = createTRPCRouter({
       }),
 
     calculate: publicProcedure
-      .input(
-        z.object({
-          moveId: z.string().uuid(),
-          serviceType: z.string().min(1),
-          serviceCost: z.string(),
-          country: z.string().min(1),
-          state: z.string().optional(),
-          employeeIncomeLevel: z.string().optional(),
-          employerCoversGrossUp: z.boolean().default(false),
-        })
-      )
+      .input(calculateTaxGrossUpSchema)
       .mutation(async ({ ctx, input }) => {
         // Simplified gross-up calculation - in production, this would use a tax service
         const serviceCost = parseFloat(input.serviceCost);
@@ -171,7 +127,7 @@ export const financialRouter = createTRPCRouter({
       }),
 
     approve: publicProcedure
-      .input(z.object({ id: z.string().uuid() }))
+      .input(approveTaxGrossUpSchema)
       .mutation(async ({ ctx, input }) => {
         const [updated] = await ctx.db
           .update(taxGrossUps)
@@ -188,4 +144,3 @@ export const financialRouter = createTRPCRouter({
       }),
   }),
 });
-

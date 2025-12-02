@@ -4,7 +4,15 @@ import { trpc } from "@/utils/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Search, DollarSign, FileText } from "lucide-react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Search, DollarSign, FileText, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 export default function FinancialPage() {
@@ -50,53 +58,60 @@ export default function FinancialPage() {
         </CardContent>
       </Card>
 
-      {isLoading && (
-        <div className="text-center py-8 text-muted-foreground">Loading invoices...</div>
-      )}
+      {isLoading ? (
+        <Card>
+          <CardContent className="py-8">
+            <div className="flex items-center justify-center text-muted-foreground">
+              <Loader2 className="h-6 w-6 animate-spin mr-2" />
+              Loading invoices...
+            </div>
+          </CardContent>
+        </Card>
+      ) : invoices && invoices.length > 0 ? (
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Invoice</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Subtotal</TableHead>
+                  <TableHead className="text-right">Fee</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {invoices.map((invoice) => (
+                  <TableRow key={invoice.id}>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        #{invoice.invoiceNumber}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {new Date(invoice.createdAt).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="capitalize">
+                        {invoice.paymentStatus}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">${invoice.subtotal}</TableCell>
+                    <TableCell className="text-right">${invoice.gullieFee}</TableCell>
+                    <TableCell className="text-right font-semibold">
+                      ${invoice.total}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      ) : null}
 
-      {invoices && invoices.length > 0 && (
-        <div className="grid gap-4">
-          {invoices.map((invoice) => (
-            <Card key={invoice.id} className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <FileText className="h-5 w-5" />
-                      Invoice #{invoice.invoiceNumber}
-                    </CardTitle>
-                    <CardDescription>
-                      Created {new Date(invoice.createdAt).toLocaleDateString()}
-                    </CardDescription>
-                  </div>
-                  <Badge variant="outline">{invoice.paymentStatus}</Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Subtotal</p>
-                    <p className="text-lg font-semibold">${invoice.subtotal}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Gullie Fee</p>
-                    <p className="text-lg font-semibold">${invoice.gullieFee}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total</p>
-                    <p className="text-lg font-semibold flex items-center gap-1">
-                      <DollarSign className="h-4 w-4" />
-                      {invoice.total}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {invoices && invoices.length === 0 && searchMoveId && (
+      {!isLoading && invoices && invoices.length === 0 && searchMoveId && (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
             No invoices found for this move.
@@ -104,7 +119,7 @@ export default function FinancialPage() {
         </Card>
       )}
 
-      {!searchMoveId && (
+      {!isLoading && !searchMoveId && (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
             Enter a move ID to search for invoices.

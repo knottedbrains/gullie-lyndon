@@ -5,13 +5,30 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Plus, Search } from "lucide-react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Plus, Search, Loader2 } from "lucide-react";
 import Link from "next/link";
 
 export default function MovesPage() {
-  const { data: moves, isLoading } = trpc.moves.list.useQuery({
-    limit: 50,
-  });
+  const { data: user } = trpc.users.getCurrentUser.useQuery();
+  const isAdmin = user?.role === "admin";
+  
+  const { data: moves, isLoading } = trpc.moves.list.useQuery(
+    {
+      limit: 50,
+    },
+    {
+      refetchInterval: 5000, // Refetch every 5 seconds to catch moves created via email/webhook
+      refetchOnWindowFocus: true,
+    }
+  );
 
   return (
     <div className="space-y-6">
@@ -43,46 +60,66 @@ export default function MovesPage() {
             </div>
           </div>
         </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="text-center py-8 text-muted-foreground">Loading moves...</div>
-          ) : moves && moves.length > 0 ? (
-            <div className="space-y-4">
-              {moves.map((move) => (
-                <Link
-                  key={move.id}
-                  href={`/moves/${move.id}`}
-                  className="block p-4 rounded-lg border hover:bg-accent transition-colors"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium">
-                          {move.originCity} → {move.destinationCity}
-                        </p>
-                        <Badge variant="outline">{move.status}</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        Created {new Date(move.createdAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-medium">{move.officeLocation}</p>
-                      {move.moveDate && (
-                        <p className="text-xs text-muted-foreground">
-                          Move date: {new Date(move.moveDate).toLocaleDateString()}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              No moves found. Create your first move to get started.
-            </div>
-          )}
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Origin → Destination</TableHead>
+                {isAdmin && <TableHead>Company</TableHead>}
+                <TableHead>Office Location</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Move Date</TableHead>
+                <TableHead>Created</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={isAdmin ? 6 : 5} className="h-24 text-center">
+                    <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+                  </TableCell>
+                </TableRow>
+              ) : moves && moves.length > 0 ? (
+                moves.map((move) => (
+                  <TableRow 
+                    key={move.id} 
+                    className="cursor-pointer"
+                    onClick={() => window.location.href = `/moves/${move.id}`}
+                  >
+                    <TableCell className="font-medium">
+                      {move.originCity} → {move.destinationCity}
+                    </TableCell>
+                    {isAdmin && (
+                      <TableCell className="text-muted-foreground">
+                        {(move as { employer?: { name: string } | null }).employer?.name ?? "-"}
+                      </TableCell>
+                    )}
+                    <TableCell>{move.officeLocation}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="capitalize">
+                        {move.status.replace(/_/g, " ")}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {move.moveDate 
+                        ? new Date(move.moveDate).toLocaleDateString()
+                        : "-"
+                      }
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {new Date(move.createdAt).toLocaleDateString()}
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={isAdmin ? 6 : 5} className="h-24 text-center text-muted-foreground">
+                    No moves found. Create your first move to get started.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>

@@ -1,174 +1,422 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "../trpc";
-import { observable } from "@trpc/server/observable";
 import { EventEmitter } from "events";
 import { getAIResponse } from "../services/openai-service";
+import { emailService } from "../services/email-service";
+import { movesTools } from "../tools/moves";
+import { housingTools } from "../tools/housing";
+import { servicesTools } from "../tools/services";
+import { financialTools } from "../tools/financial";
+import { operationsTools } from "../tools/operations";
+import { chatSessions, chatMessages, moves } from "../db/schema";
+import { eq, desc, inArray, sql } from "drizzle-orm";
+import { appRouter } from "./_app";
 
-// Event emitter for chat messages
+// Event emitter for chat messages (still useful for real-time, though we poll DB now)
 const chatEmitter = new EventEmitter();
 
 type ToolCallArguments = Record<string, string | number | boolean | null | undefined>;
 
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  timestamp: Date;
-  toolCalls?: Array<{
-    name: string;
-    arguments: ToolCallArguments;
-    result?: string;
-  }>;
-}
-
-// Store chat sessions (in production, use Redis or database)
-const chatSessions = new Map<string, ChatMessage[]>();
-
 export const chatRouter = createTRPCRouter({
-  // Send a message and get AI response
-  sendMessage: publicProcedure
-    .input(
-      z.object({
-        sessionId: z.string().optional(),
-        message: z.string().min(1),
-        workflow: z
-          .enum(["moves", "housing", "services", "financial", "operations"])
-          .optional(),
-      })
-    )
-    .mutation(async ({ input, ctx }) => {
-      const sessionId = input.sessionId || `session-${Date.now()}`;
-      const userMessage: ChatMessage = {
-        id: `msg-${Date.now()}-user`,
-        role: "user",
-        content: input.message,
-        timestamp: new Date(),
-      };
+  // Create a new chat session
+  create: publicProcedure
+    .input(z.object({
+      moveId: z.string().uuid().optional(),
+    }).optional())
+    .mutation(async ({ ctx, input }) => {
+      // Create AgentMail inbox only if we can successfully create the session
+      let agentMailInboxId, agentMailEmailAddress;
+      
+      try {
+        // First, try to create the database session to ensure the table exists
+        // We'll create the inbox after confirming DB is ready
+        const [session] = await ctx.db
+          .insert(chatSessions)
+          .values({
+            title: "New Conversation",
+            agentMailInboxId: null,
+            agentMailEmailAddress: null,
+            moveId: input?.moveId,
+          })
+          .returning();
 
-      // Get or create session
-      const session = chatSessions.get(sessionId) || [];
-      session.push(userMessage);
-      chatSessions.set(sessionId, session);
-
-      // Emit user message
-      chatEmitter.emit("message", { sessionId, message: userMessage });
-
-      // Get AI response with MCP tool integration
-      const conversationHistory = session.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
-
-      const aiResponse = await getAIResponse(conversationHistory, input.workflow);
-
-      const assistantMessage: ChatMessage = {
-        id: `msg-${Date.now()}-assistant`,
-        role: "assistant",
-        content: aiResponse.content,
-        timestamp: new Date(),
-        toolCalls: aiResponse.toolCalls,
-      };
-
-      session.push(assistantMessage);
-      chatSessions.set(sessionId, session);
-
-      // Emit assistant message
-      chatEmitter.emit("message", { sessionId, message: assistantMessage });
-
-      return {
-        sessionId,
-        message: assistantMessage,
-      };
+        // Only create inbox if DB insert succeeded
+        try {
+          const inbox = await emailService.createInbox(`Chat ${new Date().toISOString()}`);
+          agentMailInboxId = inbox.inboxId;
+          // Use inboxId as email address (AgentMail format: inboxId@agentmail.to)
+          agentMailEmailAddress = inbox.inboxId;
+          
+          // Update session with inbox info
+          await ctx.db
+            .update(chatSessions)
+            .set({
+              agentMailInboxId,
+              agentMailEmailAddress,
+            })
+            .where(eq(chatSessions.id, session.id));
+          
+          return {
+            ...session,
+            agentMailInboxId,
+            agentMailEmailAddress,
+          };
+        } catch (e: any) {
+          // Check if it's a limit exceeded error - don't spam logs
+          if (e.statusCode === 403 && e.body?.name === "LimitExceededError") {
+            console.warn("AgentMail inbox limit exceeded - session created without inbox");
+          } else {
+            console.error("Failed to create AgentMail inbox:", e);
+          }
+          // Return session without inbox - it can be created later if needed
+          return session;
+        }
+      } catch (dbError: any) {
+        // Database error - don't create inbox if DB fails
+        console.error("❌ tRPC failed on chat.create:", dbError.message);
+        throw new Error(`Failed to create chat session: ${dbError.message}`);
+      }
     }),
 
-  // Subscribe to chat messages
-  onMessage: publicProcedure
-    .input(
-      z.object({
-        sessionId: z.string(),
-      })
-    )
-    .subscription(({ input }) => {
-      return observable<ChatMessage>((emit) => {
-        const handler = (data: { sessionId: string; message: ChatMessage }) => {
-          if (data.sessionId === input.sessionId) {
-            emit.next(data.message);
-          }
-        };
-
-        chatEmitter.on("message", handler);
-
-        // Send existing messages
-        const session = chatSessions.get(input.sessionId);
-        if (session) {
-          session.forEach((msg) => {
-            emit.next(msg);
-          });
-        }
-
-        return () => {
-          chatEmitter.off("message", handler);
-        };
-      });
+  // List all chat sessions
+  list: publicProcedure
+    .query(async ({ ctx }) => {
+      const sessions = await ctx.db
+        .select()
+        .from(chatSessions)
+        .orderBy(desc(chatSessions.updatedAt));
+      
+      // For admin view, enrich with user and company info via move
+      if (ctx.user?.role === "admin") {
+        const sessionsWithDetails = await Promise.all(
+          sessions.map(async (session) => {
+            if (session.moveId) {
+              const move = await ctx.db.query.moves.findFirst({
+                where: eq(moves.id, session.moveId),
+                with: {
+                  employee: true,
+                  employer: true,
+                },
+              });
+              return {
+                ...session,
+                employee: move?.employee,
+                employer: move?.employer,
+              };
+            }
+            return session;
+          })
+        );
+        return sessionsWithDetails;
+      }
+      
+      return sessions;
     }),
 
   // Get chat history
   getHistory: publicProcedure
     .input(
       z.object({
-        sessionId: z.string(),
+        sessionId: z.string().uuid(),
       })
     )
-    .query(({ input }) => {
-      return chatSessions.get(input.sessionId) || [];
+    .query(async ({ input, ctx }) => {
+      const messages = await ctx.db
+        .select()
+        .from(chatMessages)
+        .where(eq(chatMessages.sessionId, input.sessionId))
+        .orderBy(chatMessages.createdAt);
+      
+      // Map to the expected format for the frontend
+      return messages.map(msg => ({
+        id: msg.id,
+        role: msg.role as "user" | "assistant" | "system",
+        content: msg.content,
+        timestamp: msg.createdAt,
+        toolCalls: msg.toolCalls,
+        metadata: msg.metadata,
+      }));
+    }),
+
+  // Get session details
+  getSession: publicProcedure
+    .input(z.object({ sessionId: z.string().uuid() }))
+    .query(async ({ input, ctx }) => {
+      const session = await ctx.db.query.chatSessions.findFirst({
+        where: eq(chatSessions.id, input.sessionId),
+      });
+      return session;
+    }),
+
+  // Send email
+  sendEmail: publicProcedure
+    .input(
+      z.object({
+        sessionId: z.string().uuid(),
+        to: z.array(z.string()),
+        subject: z.string(),
+        body: z.string(),
+        cc: z.array(z.string()).optional(),
+        bcc: z.array(z.string()).optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      console.log(`[sendEmail] Starting email send for session ${input.sessionId}`);
+      const session = await ctx.db.query.chatSessions.findFirst({
+        where: eq(chatSessions.id, input.sessionId),
+      });
+      if (!session?.agentMailInboxId) {
+        console.error(`[sendEmail] No inbox found for session ${input.sessionId}`);
+        throw new Error("No email inbox associated with this session");
+      }
+
+      console.log(`[sendEmail] Session found with inbox ${session.agentMailInboxId}`);
+      let result;
+      try {
+        result = await emailService.sendEmail({
+          inboxId: session.agentMailInboxId,
+          to: input.to,
+          subject: input.subject,
+          body: input.body,
+          cc: input.cc,
+          bcc: input.bcc,
+        });
+        console.log(`[sendEmail] Email service returned:`, result);
+      } catch (error) {
+        console.error(`[sendEmail] Email service error:`, error);
+        throw error;
+      }
+
+      // Save email ID if available from result
+      const emailId = result?.messageId;
+      
+      // Save as assistant message
+      await ctx.db.insert(chatMessages).values({
+        sessionId: input.sessionId,
+        role: "assistant",
+        content: `Sent email to ${input.to.join(", ")}\nSubject: ${input.subject}\n\n${input.body}`,
+        metadata: {
+          isEmail: true,
+          emailTo: input.to,
+          emailSubject: input.subject,
+          emailCc: input.cc,
+          emailBcc: input.bcc,
+          emailId: emailId,
+        },
+      });
+
+      console.log(`[sendEmail] Email message saved to chat, returning result`);
+      return result;
+    }),
+
+  // Sync emails
+  syncEmails: publicProcedure
+    .input(z.object({ sessionId: z.string().uuid() }))
+    .mutation(async ({ input, ctx }) => {
+      const session = await ctx.db.query.chatSessions.findFirst({
+        where: eq(chatSessions.id, input.sessionId),
+      });
+      if (!session?.agentMailInboxId) {
+        console.log(`[syncEmails] No inbox found for session ${input.sessionId}`);
+        return { count: 0 };
+      }
+
+      console.log(`[syncEmails] Syncing emails for inbox ${session.agentMailInboxId}`);
+      const response = await emailService.listMessages(session.agentMailInboxId);
+      let count = 0;
+
+      // The response has a 'messages' property which is the array
+      const msgList = response.messages || [];
+      console.log(`[syncEmails] Found ${msgList.length} messages in inbox`);
+
+      for (const msgItem of msgList) {
+        // Check if already exists by emailId in metadata
+        // Using jsonb check for exact match on emailId
+        const existing = await ctx.db
+          .select()
+          .from(chatMessages)
+          .where(
+             sql`${chatMessages.sessionId} = ${input.sessionId} AND ${chatMessages.metadata}->>'emailId' = ${msgItem.messageId}`
+          )
+          .limit(1);
+
+        if (existing.length === 0) {
+           // Fetch full message to get body
+           let fullMsg;
+           try {
+             fullMsg = await emailService.getMessage(session.agentMailInboxId, msgItem.messageId);
+           } catch (e) {
+             console.error(`[syncEmails] Failed to fetch full message ${msgItem.messageId}:`, e);
+             continue;
+           }
+
+           // Add a check for existing AGAIN to avoid race condition in polling
+           const doubleCheck = await ctx.db
+            .select()
+            .from(chatMessages)
+            .where(
+               sql`${chatMessages.sessionId} = ${input.sessionId} AND ${chatMessages.metadata}->>'emailId' = ${msgItem.messageId}`
+            )
+            .limit(1);
+            
+           if (doubleCheck.length > 0) continue;
+
+           // Determine if this is a sent or received email by comparing from address with inbox email
+           const isSent = session.agentMailEmailAddress && 
+                          fullMsg.from?.toLowerCase() === session.agentMailEmailAddress.toLowerCase();
+           const role = isSent ? "assistant" : "user";
+           
+           const content = isSent
+             ? `Sent email to ${Array.isArray(fullMsg.to) ? fullMsg.to.join(", ") : fullMsg.to}\nSubject: ${fullMsg.subject}\n\n${fullMsg.text || fullMsg.html || "(No content)"}`
+             : `Email from ${fullMsg.from}\nSubject: ${fullMsg.subject}\n\n${fullMsg.text || fullMsg.html || fullMsg.preview || "(No content)"}`;
+           
+           await ctx.db.insert(chatMessages).values({
+             sessionId: input.sessionId,
+             role: role,
+             content: content,
+             createdAt: fullMsg.createdAt ? new Date(fullMsg.createdAt) : new Date(),
+             metadata: {
+               isEmail: true,
+               emailId: fullMsg.messageId,
+               emailFrom: fullMsg.from,
+               emailSubject: fullMsg.subject,
+               emailTo: Array.isArray(fullMsg.to) ? fullMsg.to : [fullMsg.to],
+               emailBody: fullMsg.text || fullMsg.html || fullMsg.preview || "(No content)",
+               emailHtml: fullMsg.html,
+             }
+           });
+           console.log(`[syncEmails] Synced ${isSent ? "sent" : "received"} email ${fullMsg.messageId}`);
+           count++;
+        }
+      }
+      
+      if (count > 0) {
+          await ctx.db
+            .update(chatSessions)
+            .set({ updatedAt: new Date() })
+            .where(eq(chatSessions.id, input.sessionId));
+      }
+
+      return { count };
+    }),
+
+  // Send a message and get AI response
+  sendMessage: publicProcedure
+    .input(
+      z.object({
+        sessionId: z.string().uuid(),
+        message: z.string().min(1),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      // 1. Save user message
+      await ctx.db.insert(chatMessages).values({
+        sessionId: input.sessionId,
+        role: "user",
+        content: input.message,
+      });
+
+      // Update session timestamp
+      await ctx.db
+        .update(chatSessions)
+        .set({ updatedAt: new Date() })
+        .where(eq(chatSessions.id, input.sessionId));
+
+      // 2. Fetch conversation history for context
+      const history = await ctx.db
+        .select()
+        .from(chatMessages)
+        .where(eq(chatMessages.sessionId, input.sessionId))
+        .orderBy(chatMessages.createdAt);
+
+      const conversationHistory = history.map((msg) => ({
+        role: msg.role as "user" | "assistant" | "system",
+        content: msg.content,
+      }));
+
+      // 3. Get AI response with server-side tRPC caller
+      const serverCaller = appRouter.createCaller(ctx);
+      const aiResponse = await getAIResponse(conversationHistory, input.sessionId, serverCaller);
+
+      // Log tool calls for debugging
+      if (aiResponse.toolCalls && aiResponse.toolCalls.length > 0) {
+        aiResponse.toolCalls.forEach((call) => {
+          if (call.name === "create_test_move") {
+            console.log("🔧 [Chat Router] create_test_move tool call detected:", {
+              name: call.name,
+              arguments: call.arguments,
+              result: call.result ? JSON.parse(call.result) : null,
+            });
+          }
+        });
+      }
+
+      // 4. Save assistant message
+      await ctx.db.insert(chatMessages).values({
+        sessionId: input.sessionId,
+        role: "assistant",
+        content: aiResponse.content,
+        toolCalls: aiResponse.toolCalls,
+      });
+
+      // Update session title if it's the first few messages and title is default
+      if (history.length <= 2) {
+        // Simple heuristic: use the user's first message or generate one (simplified here)
+        const firstUserMsg = history.find(m => m.role === "user");
+        if (firstUserMsg) {
+          const title = firstUserMsg.content.slice(0, 30) + (firstUserMsg.content.length > 30 ? "..." : "");
+          await ctx.db
+            .update(chatSessions)
+            .set({ title })
+            .where(eq(chatSessions.id, input.sessionId));
+        }
+      }
+
+      return { success: true };
+    }),
+
+  // Delete a chat session
+  delete: publicProcedure
+    .input(z.object({ sessionId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db
+        .delete(chatSessions)
+        .where(eq(chatSessions.id, input.sessionId));
+      return { success: true };
+    }),
+
+  // Bulk delete chat sessions
+  bulkDelete: publicProcedure
+    .input(z.object({ sessionIds: z.array(z.string().uuid()) }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.sessionIds.length > 0) {
+        await ctx.db
+          .delete(chatSessions)
+          .where(inArray(chatSessions.id, input.sessionIds));
+      }
+      return { success: true };
     }),
 
   // List available MCP tools for a workflow
-  listTools: publicProcedure
-    .input(
-      z.object({
-        workflow: z.enum(["moves", "housing", "services", "financial", "operations"]),
-      })
-    )
-    .query(({ input }) => {
-      // Return available tools for each workflow
-      const tools: Record<string, Array<{ name: string; description: string }>> = {
-        moves: [
-          { name: "list_moves", description: "List all moves with optional filtering" },
-          { name: "get_move", description: "Get details of a specific move" },
-          { name: "create_move", description: "Create a new move/relocation" },
-          { name: "update_move_status", description: "Update the status of a move" },
-          { name: "update_lifestyle_intake", description: "Update lifestyle intake information" },
-        ],
-        housing: [
-          { name: "search_housing", description: "Search for housing options" },
-          { name: "list_housing_options", description: "List housing options with filters" },
-          { name: "create_housing_option", description: "Add a new housing option" },
-          { name: "select_housing", description: "Select a housing option" },
-        ],
-        services: [
-          { name: "list_services", description: "List all services for a move" },
-          { name: "create_hhg_quote", description: "Create an HHG quote" },
-          { name: "create_car_shipment", description: "Create a car shipment" },
-          { name: "create_flight", description: "Create a flight booking" },
-          { name: "book_flight", description: "Book a flight" },
-        ],
-        financial: [
-          { name: "list_invoices", description: "List invoices for a move" },
-          { name: "create_invoice", description: "Create a new invoice" },
-          { name: "calculate_tax_grossup", description: "Calculate tax and gross-up" },
-        ],
-        operations: [
-          { name: "list_policy_exceptions", description: "List policy exceptions" },
-          { name: "create_policy_exception", description: "Create a policy exception" },
-          { name: "list_check_ins", description: "List check-ins for a move" },
-          { name: "create_check_in", description: "Create a check-in" },
-          { name: "list_service_breaks", description: "List service breaks" },
-          { name: "create_service_break", description: "Create a service break" },
-        ],
-      };
+  listTools: publicProcedure.query(() => {
+    const allTools: Array<{ name: string; description: string; workflow: string }> = [];
 
-      return tools[input.workflow] || [];
-    }),
+    const addTools = (workflow: string, tools: Array<{ name: string; description: string }>) => {
+      tools.forEach((tool) => {
+        allTools.push({
+          name: tool.name,
+          description: tool.description,
+          workflow,
+        });
+      });
+    };
+
+    addTools("moves", movesTools);
+    addTools("housing", housingTools);
+    addTools("services", servicesTools);
+    addTools("financial", financialTools);
+    addTools("operations", operationsTools);
+
+    return allTools;
+  }),
 });
-

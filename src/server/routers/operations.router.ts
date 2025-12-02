@@ -1,20 +1,25 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "../trpc";
 import { policyExceptions, checkIns, services } from "../db/schema";
-import { eq, and, desc, gte, lte } from "drizzle-orm";
-
-const exceptionStatusSchema = z.enum(["pending", "approved", "denied"]);
-const checkInTypeSchema = z.enum(["t_minus_48", "day_of", "t_plus_48"]);
+import { eq, and, desc, gte } from "drizzle-orm";
+import {
+  addRemediationSchema,
+  checkInTypeSchema,
+  completeCheckInSchema,
+  createCheckInSchema,
+  createPolicyExceptionSchema,
+  exceptionStatusSchema,
+  listCheckInsSchema,
+  listPolicyExceptionsSchema,
+  listServiceBreaksSchema,
+  reportServiceBreakSchema,
+  updateExceptionStatusSchema,
+} from "../schemas/operations";
 
 export const operationsRouter = createTRPCRouter({
   policyExceptions: createTRPCRouter({
     list: publicProcedure
-      .input(
-        z.object({
-          moveId: z.string().uuid().optional(),
-          status: exceptionStatusSchema.optional(),
-        })
-      )
+      .input(listPolicyExceptionsSchema)
       .query(async ({ ctx, input }) => {
         const conditions = [];
         if (input.moveId) {
@@ -33,14 +38,7 @@ export const operationsRouter = createTRPCRouter({
       }),
 
     create: publicProcedure
-      .input(
-        z.object({
-          moveId: z.string().uuid(),
-          serviceId: z.string().uuid().optional(),
-          serviceType: z.string().min(1),
-          requestedService: z.string().min(1),
-        })
-      )
+      .input(createPolicyExceptionSchema)
       .mutation(async ({ ctx, input }) => {
         const [newException] = await ctx.db
           .insert(policyExceptions)
@@ -56,13 +54,7 @@ export const operationsRouter = createTRPCRouter({
       }),
 
     updateStatus: publicProcedure
-      .input(
-        z.object({
-          id: z.string().uuid(),
-          status: exceptionStatusSchema,
-          employerDecision: z.string().optional(),
-        })
-      )
+      .input(updateExceptionStatusSchema)
       .mutation(async ({ ctx, input }) => {
         const [updated] = await ctx.db
           .update(policyExceptions)
@@ -83,14 +75,7 @@ export const operationsRouter = createTRPCRouter({
 
   checkIns: createTRPCRouter({
     list: publicProcedure
-      .input(
-        z.object({
-          moveId: z.string().uuid().optional(),
-          serviceId: z.string().uuid().optional(),
-          checkInType: checkInTypeSchema.optional(),
-          upcoming: z.boolean().optional(),
-        })
-      )
+      .input(listCheckInsSchema)
       .query(async ({ ctx, input }) => {
         const conditions = [];
         if (input.moveId) {
@@ -115,14 +100,7 @@ export const operationsRouter = createTRPCRouter({
       }),
 
     create: publicProcedure
-      .input(
-        z.object({
-          moveId: z.string().uuid(),
-          serviceId: z.string().uuid().optional(),
-          checkInType: checkInTypeSchema,
-          scheduledAt: z.date(),
-        })
-      )
+      .input(createCheckInSchema)
       .mutation(async ({ ctx, input }) => {
         const [newCheckIn] = await ctx.db
           .insert(checkIns)
@@ -137,12 +115,7 @@ export const operationsRouter = createTRPCRouter({
       }),
 
     complete: publicProcedure
-      .input(
-        z.object({
-          id: z.string().uuid(),
-          notes: z.string().optional(),
-        })
-      )
+      .input(completeCheckInSchema)
       .mutation(async ({ ctx, input }) => {
         const [updated] = await ctx.db
           .update(checkIns)
@@ -162,7 +135,7 @@ export const operationsRouter = createTRPCRouter({
 
   serviceBreaks: createTRPCRouter({
     list: publicProcedure
-      .input(z.object({ moveId: z.string().uuid().optional() }))
+      .input(listServiceBreaksSchema)
       .query(async ({ ctx, input }) => {
         const conditions = [eq(services.serviceBreak, true)];
         if (input.moveId) {
@@ -178,12 +151,7 @@ export const operationsRouter = createTRPCRouter({
       }),
 
     report: publicProcedure
-      .input(
-        z.object({
-          serviceId: z.string().uuid(),
-          description: z.string().min(1),
-        })
-      )
+      .input(reportServiceBreakSchema)
       .mutation(async ({ ctx, input }) => {
         const [updated] = await ctx.db
           .update(services)
@@ -201,12 +169,7 @@ export const operationsRouter = createTRPCRouter({
       }),
 
     addRemediation: publicProcedure
-      .input(
-        z.object({
-          serviceId: z.string().uuid(),
-          remediationPlan: z.string().min(1),
-        })
-      )
+      .input(addRemediationSchema)
       .mutation(async ({ ctx, input }) => {
         const [updated] = await ctx.db
           .update(services)
@@ -223,4 +186,3 @@ export const operationsRouter = createTRPCRouter({
       }),
   }),
 });
-

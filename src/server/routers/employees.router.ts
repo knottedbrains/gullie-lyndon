@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "../trpc";
-import { employees } from "../db/schema";
-import { eq, desc, ilike, or } from "drizzle-orm";
+import { employees, moves } from "../db/schema";
+import { eq, desc, ilike, or, inArray } from "drizzle-orm";
 
 export const employeesRouter = createTRPCRouter({
   list: publicProcedure
@@ -93,6 +93,40 @@ export const employeesRouter = createTRPCRouter({
         throw new Error("Employee not found");
       }
       return updated;
+    }),
+
+  // Get employees by employer (through moves)
+  getByEmployer: publicProcedure
+    .input(
+      z.object({
+        employerId: z.string().uuid(),
+        limit: z.number().min(1).max(100).default(50),
+        offset: z.number().min(0).default(0),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      // Get moves for this employer
+      const employerMoves = await ctx.db
+        .select({ employeeId: moves.employeeId })
+        .from(moves)
+        .where(eq(moves.employerId, input.employerId))
+        .limit(input.limit)
+        .offset(input.offset);
+
+      if (employerMoves.length === 0) {
+        return [];
+      }
+
+      const employeeIds = [...new Set(employerMoves.map((m) => m.employeeId))];
+      
+      // Get employees
+      const result = await ctx.db
+        .select()
+        .from(employees)
+        .where(inArray(employees.id, employeeIds))
+        .orderBy(desc(employees.createdAt));
+
+      return result;
     }),
 });
 

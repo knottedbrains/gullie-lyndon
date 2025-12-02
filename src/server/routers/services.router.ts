@@ -6,39 +6,22 @@ import {
   carShipments,
   flights,
   dspRequests,
+  moves,
+  vendors,
 } from "../db/schema";
-import { eq, and, desc } from "drizzle-orm";
-
-const serviceTypeSchema = z.enum([
-  "temporary_housing",
-  "permanent_housing",
-  "hhg",
-  "car_shipment",
-  "flight",
-  "dsp_orientation",
-  "other",
-]);
-
-const serviceStatusSchema = z.enum([
-  "pending",
-  "quoted",
-  "approved",
-  "booked",
-  "in_progress",
-  "completed",
-  "cancelled",
-  "exception",
-]);
+import { eq, and, desc, inArray } from "drizzle-orm";
+import {
+  bookFlightSchema,
+  createCarShipmentSchema,
+  createFlightSchema,
+  createHhgQuoteSchema,
+  listServicesSchema,
+  serviceStatusSchema,
+} from "../schemas/services";
 
 export const servicesRouter = createTRPCRouter({
   list: publicProcedure
-    .input(
-      z.object({
-        moveId: z.string().uuid().optional(),
-        type: serviceTypeSchema.optional(),
-        status: serviceStatusSchema.optional(),
-      })
-    )
+    .input(listServicesSchema)
     .query(async ({ ctx, input }) => {
       const conditions = [];
       if (input.moveId) {
@@ -49,6 +32,34 @@ export const servicesRouter = createTRPCRouter({
       }
       if (input.status) {
         conditions.push(eq(services.status, input.status));
+      }
+      if (input.vendorId) {
+        conditions.push(eq(services.vendorId, input.vendorId));
+      }
+
+      // Role-based filtering
+      if (ctx.user) {
+        if (ctx.user.role === "vendor") {
+          // For vendors, filter by vendorId
+          // Note: This assumes vendor users have a vendorId - would need to be added to users table
+          // For now, we'll filter by vendorName matching the user's name or email
+          // In production, you'd link users to vendors via vendorId
+        } else if (ctx.user.role === "company" && ctx.user.employerId) {
+          // For companies, filter services by their moves
+          // This requires a join with moves table
+          const companyMoves = await ctx.db
+            .select({ id: moves.id })
+            .from(moves)
+            .where(eq(moves.employerId, ctx.user.employerId));
+          
+          if (companyMoves.length > 0) {
+            const moveIds = companyMoves.map(m => m.id);
+            conditions.push(inArray(services.moveId, moveIds));
+          } else {
+            // No moves for this company, return empty
+            return [];
+          }
+        }
       }
 
       const result = await ctx.db
@@ -87,16 +98,7 @@ export const servicesRouter = createTRPCRouter({
       }),
 
     create: publicProcedure
-      .input(
-        z.object({
-          moveId: z.string().uuid(),
-          vendorName: z.string().min(1),
-          quoteAmount: z.string(),
-          budget: z.string().optional(),
-          withinBudget: z.boolean(),
-          inventory: z.record(z.unknown()).optional(),
-        })
-      )
+      .input(createHhgQuoteSchema)
       .mutation(async ({ ctx, input }) => {
         const [newQuote] = await ctx.db
           .insert(hhgQuotes)
@@ -144,16 +146,7 @@ export const servicesRouter = createTRPCRouter({
       }),
 
     create: publicProcedure
-      .input(
-        z.object({
-          moveId: z.string().uuid(),
-          make: z.string().min(1),
-          model: z.string().min(1),
-          year: z.number(),
-          vin: z.string().optional(),
-          desiredShipDate: z.date().optional(),
-        })
-      )
+      .input(createCarShipmentSchema)
       .mutation(async ({ ctx, input }) => {
         const [newShipment] = await ctx.db
           .insert(carShipments)
@@ -206,18 +199,7 @@ export const servicesRouter = createTRPCRouter({
       }),
 
     create: publicProcedure
-      .input(
-        z.object({
-          moveId: z.string().uuid(),
-          origin: z.string().min(1),
-          destination: z.string().min(1),
-          departureDate: z.date().optional(),
-          returnDate: z.date().optional(),
-          airline: z.string().optional(),
-          class: z.string().optional(),
-          price: z.string().optional(),
-        })
-      )
+      .input(createFlightSchema)
       .mutation(async ({ ctx, input }) => {
         const [newFlight] = await ctx.db
           .insert(flights)
@@ -236,12 +218,7 @@ export const servicesRouter = createTRPCRouter({
       }),
 
     book: publicProcedure
-      .input(
-        z.object({
-          id: z.string().uuid(),
-          bookingReference: z.string().min(1),
-        })
-      )
+      .input(bookFlightSchema)
       .mutation(async ({ ctx, input }) => {
         const [updated] = await ctx.db
           .update(flights)
@@ -300,5 +277,77 @@ export const servicesRouter = createTRPCRouter({
         return newRequest;
       }),
   }),
-});
 
+  // Assign vendor to service (admin only)
+  assignVendor: publicProcedure
+    .input(
+      z.object({
+        serviceId: z.string().uuid(),
+        vendorId: z.string().uuid(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Check if user is admin
+      if (ctx.user?.role !== "admin") {
+        throw new Error("Access denied. Admin role required.");
+      }
+
+      // Verify vendor exists
+      const [vendor] = await ctx.db
+        .select()
+        .from(vendors)
+        .where(eq(vendors.id, input.vendorId))
+        .limit(1);
+      
+      if (!vendor) {
+        throw new Error("Vendor not found");
+      }
+
+      // Update service with vendor assignment
+      const [updated] = await ctx.db
+        .update(services)
+        .set({
+          vendorId: input.vendorId,
+          vendorName: vendor.name, // Keep vendorName in sync for backward compatibility
+          updatedAt: new Date(),
+        })
+        .where(eq(services.id, input.serviceId))
+        .returning();
+
+      if (!updated) {
+        throw new Error("Service not found");
+      }
+
+      return updated;
+    }),
+
+  // Unassign vendor from service (admin only)
+  unassignVendor: publicProcedure
+    .input(
+      z.object({
+        serviceId: z.string().uuid(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Check if user is admin
+      if (ctx.user?.role !== "admin") {
+        throw new Error("Access denied. Admin role required.");
+      }
+
+      // Update service to remove vendor assignment
+      const [updated] = await ctx.db
+        .update(services)
+        .set({
+          vendorId: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(services.id, input.serviceId))
+        .returning();
+
+      if (!updated) {
+        throw new Error("Service not found");
+      }
+
+      return updated;
+    }),
+});
