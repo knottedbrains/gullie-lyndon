@@ -1,4 +1,4 @@
-## gullie-lyndon / gullie-agentmail
+## gullie-lyndon
 
 AI-powered relocation operations and communication dashboard built with **Next.js 16 (LTS)**, **tRPC**, **Drizzle ORM (Postgres)**, and **AgentMail** + **MCP** tools.
 
