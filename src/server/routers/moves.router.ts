@@ -37,28 +37,17 @@ export const movesRouter = createTRPCRouter({
         }
       }
 
-      // For admin users, include employer information
-      if (ctx.user?.role === "admin") {
-        const result = await ctx.db.query.moves.findMany({
-          where: conditions.length > 0 ? and(...conditions) : undefined,
-          orderBy: desc(moves.createdAt),
-          limit: input.limit,
-          offset: input.offset,
-          with: {
-            employer: true,
-          },
-        });
-        return result;
-      }
-
-      // For non-admin users, return basic move data
-      const result = await ctx.db
-        .select()
-        .from(moves)
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(desc(moves.createdAt))
-        .limit(input.limit)
-        .offset(input.offset);
+      // Include employee and employer information for all users
+      const result = await ctx.db.query.moves.findMany({
+        where: conditions.length > 0 ? and(...conditions) : undefined,
+        orderBy: desc(moves.createdAt),
+        limit: input.limit,
+        offset: input.offset,
+        with: {
+          employee: true,
+          employer: true,
+        },
+      });
       return result;
     }),
 

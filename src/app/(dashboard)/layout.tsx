@@ -1,6 +1,6 @@
+import { Suspense } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
-import { RoleSelector } from "@/components/debug/role-selector";
 
 export default function DashboardLayout({
   children,
@@ -9,14 +9,21 @@ export default function DashboardLayout({
 }) {
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar />
+      <Suspense fallback={
+        <div className="flex h-full w-64 flex-col border-r bg-background">
+          <div className="flex h-16 items-center px-6 border-b">
+            <span className="font-bold text-lg tracking-tight">Gullie</span>
+          </div>
+        </div>
+      }>
+        <Sidebar />
+      </Suspense>
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header />
         <main className="flex-1 overflow-y-auto bg-muted/40 p-6">
           {children}
         </main>
       </div>
-      <RoleSelector />
     </div>
   );
 }

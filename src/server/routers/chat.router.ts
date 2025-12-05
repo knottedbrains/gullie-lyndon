@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure } from "../trpc";
 import { EventEmitter } from "events";
-import { getAIResponse } from "../services/openai-service";
+import { getAIResponse, AIConfig } from "../services/openai-service";
 import { emailService } from "../services/email-service";
 import { movesTools } from "../tools/moves";
 import { housingTools } from "../tools/housing";
@@ -126,7 +126,7 @@ export const chatRouter = createTRPCRouter({
         .from(chatMessages)
         .where(eq(chatMessages.sessionId, input.sessionId))
         .orderBy(chatMessages.createdAt);
-      
+
       // Map to the expected format for the frontend
       return messages.map(msg => ({
         id: msg.id,
@@ -135,6 +135,8 @@ export const chatRouter = createTRPCRouter({
         timestamp: msg.createdAt,
         toolCalls: msg.toolCalls,
         metadata: msg.metadata,
+        reasoning: msg.reasoning,
+        model: msg.model,
       }));
     }),
 
@@ -306,6 +308,45 @@ export const chatRouter = createTRPCRouter({
       z.object({
         sessionId: z.string().uuid(),
         message: z.string().min(1),
+        config: z.object({
+          model: z.enum([
+            // GPT-5.1 (Latest)
+            "gpt-5.1",
+            "gpt-5.1-2025-11-13",
+            "gpt-5.1-chat-latest",
+            // GPT-5
+            "gpt-5",
+            "gpt-5-2025-08-07",
+            "gpt-5-chat-latest",
+            "gpt-5-mini",
+            "gpt-5-mini-2025-08-07",
+            "gpt-5-pro",
+            "gpt-5-pro-2025-10-06",
+            // GPT-4.1
+            "gpt-4.1",
+            "gpt-4.1-2025-04-14",
+            "gpt-4.1-mini",
+            "gpt-4.1-mini-2025-04-14",
+            // GPT-4o
+            "gpt-4o",
+            "gpt-4o-2024-11-20",
+            "gpt-4o-mini",
+            "chatgpt-4o-latest",
+            // o1 (Reasoning)
+            "o1",
+            "o1-2024-12-17",
+            "o1-pro",
+            "o1-pro-2025-03-19",
+            // o3 (Latest Reasoning)
+            "o3",
+            "o3-2025-04-16",
+            "o3-mini",
+            "o3-mini-2025-01-31"
+          ]).optional(),
+          enableParallelExecution: z.boolean().optional(),
+          enableExtendedThinking: z.boolean().optional(),
+          maxReasoningTokens: z.number().optional(),
+        }).optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -334,9 +375,14 @@ export const chatRouter = createTRPCRouter({
         content: msg.content,
       }));
 
-      // 3. Get AI response with server-side tRPC caller
+      // 3. Get AI response with server-side tRPC caller and config
       const serverCaller = appRouter.createCaller(ctx);
-      const aiResponse = await getAIResponse(conversationHistory, input.sessionId, serverCaller);
+      const aiResponse = await getAIResponse(
+        conversationHistory,
+        input.sessionId,
+        serverCaller,
+        input.config as Partial<AIConfig>
+      );
 
       // Log tool calls for debugging
       if (aiResponse.toolCalls && aiResponse.toolCalls.length > 0) {
@@ -351,12 +397,14 @@ export const chatRouter = createTRPCRouter({
         });
       }
 
-      // 4. Save assistant message
+      // 4. Save assistant message with reasoning and model
       await ctx.db.insert(chatMessages).values({
         sessionId: input.sessionId,
         role: "assistant",
         content: aiResponse.content,
         toolCalls: aiResponse.toolCalls,
+        reasoning: aiResponse.reasoning,
+        model: aiResponse.model,
       });
 
       // Update session title if it's the first few messages and title is default

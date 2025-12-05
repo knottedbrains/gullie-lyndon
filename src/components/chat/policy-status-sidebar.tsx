@@ -1,10 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { CheckCircle2, Circle, Clock, AlertCircle, Home, Truck, CreditCard, Briefcase } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { CheckCircle2, Circle, Clock, AlertCircle, Home, Truck, CreditCard, Briefcase, ChevronRight, ChevronLeft } from "lucide-react";
 import { trpc } from "@/utils/trpc";
+import { cn } from "@/lib/utils";
 
 type Status = "completed" | "in_progress" | "pending" | "attention";
 
@@ -49,6 +52,8 @@ function StatusBadge({ status }: { status: Status }) {
 }
 
 export function PolicyStatusSidebar({ moveId }: { moveId?: string }) {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
   // Fetch the specific move if moveId is provided, otherwise no move
   const { data: move } = trpc.moves.getById.useQuery(
     { id: moveId! },
@@ -113,44 +118,86 @@ export function PolicyStatusSidebar({ moveId }: { moveId?: string }) {
   ];
 
   return (
-    <div className="w-80 h-full border-l bg-muted/5 flex flex-col">
-      <div className="p-4 border-b bg-background/50 backdrop-blur supports-[backdrop-filter]:bg-background/50">
-        <h2 className="font-semibold">Policy Status</h2>
-        <p className="text-xs text-muted-foreground">Track your relocation progress</p>
-      </div>
-      <ScrollArea className="flex-1 p-4">
-        <div className="space-y-4">
+    <div className={cn(
+      "h-full border-l bg-muted/5 flex flex-col transition-all duration-300 ease-in-out relative",
+      isCollapsed ? "w-12" : "w-80"
+    )}>
+      {/* Toggle Button */}
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+        className={cn(
+          "absolute top-4 -left-3 z-10 h-6 w-6 rounded-full border bg-background shadow-md hover:bg-accent",
+          "transition-transform duration-300"
+        )}
+        title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+      >
+        {isCollapsed ? (
+          <ChevronLeft className="h-4 w-4" />
+        ) : (
+          <ChevronRight className="h-4 w-4" />
+        )}
+      </Button>
+
+      {/* Collapsed State */}
+      {isCollapsed && (
+        <div className="flex-1 flex flex-col items-center pt-16 gap-4">
           {sections.map((section) => (
-            <Card key={section.id} className="overflow-hidden">
-              <CardHeader className="p-3 bg-muted/20">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <section.icon className="h-4 w-4 text-muted-foreground" />
-                    <CardTitle className="text-sm font-medium">{section.title}</CardTitle>
-                  </div>
-                  <StatusIcon status={section.status} />
-                </div>
-              </CardHeader>
-              <CardContent className="p-3 space-y-3">
-                {section.steps.map((step, idx) => (
-                  <div key={idx} className="flex flex-col gap-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">{step.label}</span>
-                      <span className={`font-medium ${
-                        step.status === 'attention' ? 'text-amber-600' : 
-                        step.status === 'completed' ? 'text-green-600' : ''
-                      }`}>
-                        {step.value}
-                      </span>
-                    </div>
-                    {idx < section.steps.length - 1 && <div className="h-px bg-border/50 mt-1" />}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
+            <div
+              key={section.id}
+              className="flex flex-col items-center gap-1 cursor-pointer hover:bg-muted/50 p-2 rounded transition-colors"
+              title={section.title}
+            >
+              <section.icon className="h-5 w-5 text-muted-foreground" />
+              <StatusIcon status={section.status} />
+            </div>
           ))}
         </div>
-      </ScrollArea>
+      )}
+
+      {/* Expanded State */}
+      {!isCollapsed && (
+        <>
+          <div className="p-4 border-b bg-background/50 backdrop-blur supports-[backdrop-filter]:bg-background/50">
+            <h2 className="font-semibold">Policy Status</h2>
+            <p className="text-xs text-muted-foreground">Track your relocation progress</p>
+          </div>
+          <ScrollArea className="flex-1 p-4">
+            <div className="space-y-4">
+              {sections.map((section) => (
+                <Card key={section.id} className="overflow-hidden">
+                  <CardHeader className="p-3 bg-muted/20">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <section.icon className="h-4 w-4 text-muted-foreground" />
+                        <CardTitle className="text-sm font-medium">{section.title}</CardTitle>
+                      </div>
+                      <StatusIcon status={section.status} />
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-3 space-y-3">
+                    {section.steps.map((step, idx) => (
+                      <div key={idx} className="flex flex-col gap-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">{step.label}</span>
+                          <span className={`font-medium ${
+                            step.status === 'attention' ? 'text-amber-600' :
+                            step.status === 'completed' ? 'text-green-600' : ''
+                          }`}>
+                            {step.value}
+                          </span>
+                        </div>
+                        {idx < section.steps.length - 1 && <div className="h-px bg-border/50 mt-1" />}
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </ScrollArea>
+        </>
+      )}
     </div>
   );
 }

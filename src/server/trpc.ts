@@ -4,8 +4,8 @@ import superjson from "superjson";
 import { db } from "./db";
 import { getCurrentUser, type User } from "@/lib/auth";
 
-export const createTRPCContext = async (cookies?: { get: (name: string) => { value: string } | undefined }) => {
-  const user = await getCurrentUser(cookies);
+export const createTRPCContext = async () => {
+  const user = await getCurrentUser();
   return {
     db,
     user: user as User | null,

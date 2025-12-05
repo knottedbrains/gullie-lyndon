@@ -30,12 +30,14 @@ export const chatMessages = pgTable("chat_messages", {
     emailFrom?: string;
     emailTo?: string[];
     emailCc?: string[];
-    emailBcc?: string[]; // Added
+    emailBcc?: string[];
     emailSubject?: string;
-    emailId?: string; // Added
-    emailBody?: string; // Added text body
-    emailHtml?: string; // Added html body
+    emailId?: string;
+    emailBody?: string;
+    emailHtml?: string;
   }>(),
+  reasoning: text("reasoning"), // AI reasoning/thinking (for o1/o3 models)
+  model: text("model"), // AI model used for this message
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

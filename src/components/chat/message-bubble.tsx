@@ -1,7 +1,9 @@
 import { cn } from "@/lib/utils";
-import { Bot } from "lucide-react";
+import { Bot, Brain, Cpu, Code2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { EmailMessage } from "./widgets/email-message";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
 
 interface Message {
   id: string;
@@ -9,6 +11,13 @@ interface Message {
   content: string;
   timestamp?: Date;
   metadata?: any;
+  reasoning?: string | null;
+  model?: string | null;
+  toolCalls?: Array<{
+    name: string;
+    arguments: Record<string, unknown>;
+    result?: string;
+  }> | null;
 }
 
 interface MessageBubbleProps {
@@ -17,9 +26,12 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message, children }: MessageBubbleProps) {
+  const [showReasoning, setShowReasoning] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
+
   if (message.metadata?.isEmail) {
     return (
-      <EmailMessage 
+      <EmailMessage
         from={message.metadata.emailFrom || "Unknown"}
         to={message.metadata.emailTo}
         subject={message.metadata.emailSubject || "No Subject"}
@@ -40,12 +52,20 @@ export function MessageBubble({ message, children }: MessageBubbleProps) {
           </div>
         </div>
       )}
-      
+
       <div className={cn("flex flex-col gap-2 max-w-[85%]", message.role === "user" ? "items-end" : "items-start")}>
+        {/* Model badge */}
+        {message.role === "assistant" && message.model && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground px-2">
+            <Cpu className="h-3 w-3" />
+            <span className="font-mono">{message.model}</span>
+          </div>
+        )}
+
         <div className={cn(
           "rounded-2xl px-5 py-3 text-sm shadow-sm overflow-hidden prose-p:leading-relaxed",
-          message.role === "user" 
-            ? "bg-primary text-primary-foreground rounded-br-sm" 
+          message.role === "user"
+            ? "bg-primary text-primary-foreground rounded-br-sm"
             : "bg-muted/50 hover:bg-muted/80 transition-colors rounded-bl-sm"
         )}>
           <div className="prose prose-sm dark:prose-invert max-w-none break-words">
@@ -60,6 +80,71 @@ export function MessageBubble({ message, children }: MessageBubbleProps) {
             </ReactMarkdown>
           </div>
         </div>
+
+        {/* Reasoning section (collapsible) */}
+        {message.role === "assistant" && message.reasoning && (
+          <div className="w-full">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowReasoning(!showReasoning)}
+              className="h-7 text-xs text-muted-foreground hover:text-foreground gap-1.5"
+            >
+              <Brain className="h-3 w-3" />
+              {showReasoning ? "Hide" : "Show"} Reasoning
+            </Button>
+            {showReasoning && (
+              <div className="mt-2 p-3 bg-muted/30 rounded-lg border border-dashed text-xs text-muted-foreground font-mono whitespace-pre-wrap max-h-96 overflow-y-auto">
+                {message.reasoning}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Debug section (tool calls JSON) */}
+        {message.role === "assistant" && message.toolCalls && message.toolCalls.length > 0 && (
+          <div className="w-full">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowDebug(!showDebug)}
+              className="h-7 text-xs text-muted-foreground hover:text-foreground gap-1.5"
+            >
+              <Code2 className="h-3 w-3" />
+              {showDebug ? "Hide" : "Show"} Debug ({message.toolCalls.length} tool{message.toolCalls.length !== 1 ? "s" : ""})
+            </Button>
+            {showDebug && (
+              <div className="mt-2 p-3 bg-muted/30 rounded-lg border border-dashed text-xs font-mono max-h-96 overflow-y-auto">
+                <div className="space-y-4">
+                  {message.toolCalls.map((call, idx) => (
+                    <div key={idx} className="space-y-2">
+                      <div className="flex items-center gap-2 text-primary font-semibold">
+                        <span className="bg-primary/10 px-2 py-0.5 rounded">#{idx + 1}</span>
+                        <span>{call.name}</span>
+                      </div>
+
+                      <div>
+                        <div className="text-muted-foreground mb-1">Arguments:</div>
+                        <pre className="bg-background/50 p-2 rounded overflow-x-auto">
+                          {JSON.stringify(call.arguments, null, 2)}
+                        </pre>
+                      </div>
+
+                      {call.result && (
+                        <div>
+                          <div className="text-muted-foreground mb-1">Result:</div>
+                          <pre className="bg-background/50 p-2 rounded overflow-x-auto">
+                            {call.result}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {children}
       </div>

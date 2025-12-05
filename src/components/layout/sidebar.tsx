@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -11,23 +12,14 @@ import {
   DollarSign,
   Settings,
   Plus,
-  MessageCircle,
-  MoreVertical,
-  Edit2,
-  Star,
-  Trash,
   Building2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { trpc } from "@/utils/trpc";
 import type { UserRole } from "@/types/dashboard";
+import { CompanyFolder } from "./company-folder";
+import { CreateConversationDialog } from "@/components/conversations/create-conversation-dialog";
+import { CompanySettingsDialog } from "@/components/settings/company-settings-dialog";
 
 // Role-specific navigation items
 const getNavigationForRole = (role: UserRole | undefined) => {
@@ -63,173 +55,182 @@ const getNavigationForRole = (role: UserRole | undefined) => {
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  
+  const searchParams = useSearchParams();
+  const currentMoveId = searchParams.get("moveId") || undefined;
+  const currentConversationId = searchParams.get("conversationId") || undefined;
+
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [selectedMoveId, setSelectedMoveId] = useState<string | undefined>();
+  const [companySettingsOpen, setCompanySettingsOpen] = useState(false);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | undefined>();
+  const [selectedCompanyName, setSelectedCompanyName] = useState<string | undefined>();
+  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>();
+
   // Get current user
   const { data: user } = trpc.users.getCurrentUser.useQuery();
   const role = user?.role || "admin";
   const navigation = getNavigationForRole(role);
-  
-  const { data: recentChats, refetch: refetchChats } = trpc.chat.list.useQuery(undefined, {
+
+  // Get recent moves for sidebar
+  const { data: recentMoves, refetch: refetchMoves } = trpc.moves.list.useQuery({}, {
     refetchOnWindowFocus: false,
   });
 
-  const createChat = trpc.chat.create.useMutation({
-    onSuccess: (session) => {
-      router.push(`/chat?id=${session.id}`);
-      refetchChats();
-    },
-    onError: (error) => {
-      console.error("Failed to create chat session:", error);
-    },
-  });
+  // Get move IDs for fetching conversations
+  const moveIds = recentMoves?.slice(0, 10).map(move => move.id) || [];
 
-  const deleteChat = trpc.chat.delete.useMutation({
-    onSuccess: () => {
-      refetchChats();
-      if (pathname === "/chat") {
-        router.push("/chat");
-      }
-    },
-  });
+  // Fetch conversations for all recent moves in a single query
+  const { data: conversationsByMove, refetch: refetchConversations } = trpc.conversations.listByMoves.useQuery(
+    { moveIds },
+    {
+      enabled: moveIds.length > 0,
+      refetchOnWindowFocus: false,
+    }
+  );
+
+  // Group moves by company
+  const movesByCompany = recentMoves?.reduce((acc, move) => {
+    const companyName = move.employer?.name || "Unassigned";
+    const companyId = move.employer?.id || "unassigned";
+
+    if (!acc[companyId]) {
+      acc[companyId] = {
+        companyName,
+        companyId,
+        moves: [],
+      };
+    }
+
+    acc[companyId].moves.push(move);
+    return acc;
+  }, {} as Record<string, { companyName: string; companyId: string; moves: typeof recentMoves }>);
+
+  const companies = Object.values(movesByCompany || {}).sort((a, b) =>
+    a.companyName.localeCompare(b.companyName)
+  );
+
+  const handleCreateConversation = (moveId: string) => {
+    setSelectedMoveId(moveId);
+    setCreateDialogOpen(true);
+  };
+
+  const handleConversationCreated = () => {
+    setCreateDialogOpen(false);
+    setSelectedMoveId(undefined);
+    // Refetch conversations
+    refetchConversations();
+  };
+
+  const handleOpenCompanySettings = (companyId: string) => {
+    const company = companies.find(c => c.companyId === companyId);
+    setSelectedCompanyId(companyId);
+    setSelectedCompanyName(company?.companyName);
+    setCompanySettingsOpen(true);
+  };
+
+  const handleOpenProjectSettings = (projectId: string) => {
+    setSelectedProjectId(projectId);
+    setProjectSettingsOpen(true);
+    // TODO: Implement project settings dialog
+    alert(`Project settings for ${projectId} - Coming soon!`);
+  };
 
   return (
-    <div className="flex h-full w-64 flex-col border-r bg-background">
-      {/* Logo */}
-      <div className="flex h-16 items-center px-6 border-b">
-        <span className="font-bold text-lg tracking-tight">Gullie</span>
-      </div>
-
-      <div className="flex-1 flex flex-col overflow-hidden py-4">
-        <div className="px-3 space-y-1 mb-6">
-          {navigation.map((item) => {
-            const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200",
-                  isActive
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                <item.icon className={cn("h-4 w-4", isActive ? "text-primary-foreground" : "text-muted-foreground")} />
-                {item.name}
-              </Link>
-            );
-          })}
+    <>
+      <div className="flex h-full w-64 flex-col border-r bg-background">
+        {/* Logo */}
+        <div className="flex h-16 items-center px-6 border-b">
+          <span className="font-bold text-lg tracking-tight">Gullie</span>
         </div>
 
-        {/* Chats - Hidden for employees */}
-        {role !== "employee" && (
-          <div className="flex-1 overflow-hidden px-3 flex flex-col min-w-0">
-            <div className="flex items-center justify-between px-2 pb-2 mb-1 flex-shrink-0">
-              {(role === "admin" || role === "company") && (
-                <Link href="/conversations" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors">
-                  Conversations
+        <div className="flex-1 flex flex-col overflow-hidden py-4">
+          <div className="px-3 space-y-1 mb-6">
+            {navigation.map((item) => {
+              const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200",
+                    isActive
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  <item.icon className={cn("h-4 w-4", isActive ? "text-primary-foreground" : "text-muted-foreground")} />
+                  {item.name}
                 </Link>
-              )}
-              {role === "vendor" && (
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Chat
-                </span>
-              )}
-              <Button
-                onClick={() => createChat.mutate()}
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 flex-shrink-0 text-muted-foreground hover:text-foreground"
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
+              );
+            })}
+          </div>
 
-            <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
-              <div className="space-y-0.5 pr-2">
-                {recentChats?.map((chat) => {
-                  const isActive = pathname === "/chat" && window.location.search.includes(chat.id);
-                  return (
-                    <div
-                      key={chat.id}
-                      className={cn(
-                        "flex items-center rounded-md text-sm transition-all duration-200 group/item overflow-hidden",
-                        isActive
-                          ? "bg-muted font-medium text-foreground"
-                          : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                      )}
-                    >
-                      <Link
-                        href={`/chat?id=${chat.id}`}
-                        className="flex-1 flex items-center gap-2 pl-3 py-2 min-w-0 overflow-hidden"
-                      >
-                        <MessageCircle className={cn(
-                          "h-4 w-4 flex-shrink-0 transition-colors",
-                          isActive ? "text-foreground" : "text-muted-foreground group-hover/item:text-foreground"
-                        )} />
-                        <span className="truncate" title={chat.title}>{chat.title?.split('<')[0].trim() || "New Chat"}</span>
-                      </Link>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className={cn(
-                              "h-7 w-7 flex-shrink-0 transition-all duration-200 mr-1",
-                              "opacity-0 group-hover/item:opacity-100 focus:opacity-100 data-[state=open]:opacity-100",
-                              isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-                            )}
-                          >
-                            <MoreVertical className="h-3.5 w-3.5" />
-                            <span className="sr-only">Open menu</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
-                          <DropdownMenuItem onClick={() => console.log("Rename")}>
-                            <Edit2 className="mr-2 h-3 w-3" />
-                            Rename
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => console.log("Favorite")}>
-                            <Star className="mr-2 h-3 w-3" />
-                            Favorite
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => deleteChat.mutate({ sessionId: chat.id })}>
-                            <Trash className="mr-2 h-3 w-3" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+          {/* Projects & Conversations */}
+          {role !== "employee" && (
+            <div className="flex-1 overflow-hidden px-3 flex flex-col min-w-0">
+              <div className="flex items-center justify-between px-2 pb-2 mb-1 flex-shrink-0">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Projects
+                </span>
+                <Button
+                  onClick={() => router.push("/moves/new")}
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 flex-shrink-0 text-muted-foreground hover:text-foreground"
+                  title="New Project"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
+                <div className="space-y-1 pr-2">
+                  {companies.map((company) => (
+                    <CompanyFolder
+                      key={company.companyId}
+                      companyId={company.companyId}
+                      companyName={company.companyName}
+                      moves={company.moves}
+                      conversationsByMove={conversationsByMove || {}}
+                      currentMoveId={currentMoveId}
+                      currentConversationId={currentConversationId}
+                      onCreateConversation={handleCreateConversation}
+                      onOpenCompanySettings={handleOpenCompanySettings}
+                      onOpenProjectSettings={handleOpenProjectSettings}
+                    />
+                  ))}
+                  {(!recentMoves || recentMoves.length === 0) && (
+                    <div className="px-3 py-8 text-xs text-muted-foreground text-center">
+                      No projects yet
                     </div>
-                  );
-                })}
-                {(!recentChats || recentChats.length === 0) && (
-                  <div className="px-3 py-8 text-xs text-muted-foreground text-center">
-                    No conversations yet
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </div>
-
-      {/* Footer User */}
-      <div className="p-4 border-t bg-muted/5">
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-primary-foreground">
-            {user?.name
-              ?.split(" ")
-              .map((n) => n[0])
-              .join("")
-              .toUpperCase()
-              .slice(0, 2) || "U"}
-          </div>
-          <div className="flex-1 overflow-hidden">
-            <p className="text-sm font-medium truncate">{user?.name || "User"}</p>
-            <p className="text-xs text-muted-foreground truncate">{user?.email || "user@example.com"}</p>
-          </div>
+          )}
         </div>
       </div>
-    </div>
+
+      {/* Create Conversation Dialog */}
+      {selectedMoveId && (
+        <CreateConversationDialog
+          moveId={selectedMoveId}
+          open={createDialogOpen}
+          onOpenChange={setCreateDialogOpen}
+          onSuccess={handleConversationCreated}
+        />
+      )}
+
+      {/* Company Settings Dialog */}
+      {selectedCompanyId && selectedCompanyName && (
+        <CompanySettingsDialog
+          companyId={selectedCompanyId}
+          companyName={selectedCompanyName}
+          open={companySettingsOpen}
+          onOpenChange={setCompanySettingsOpen}
+        />
+      )}
+    </>
   );
 }

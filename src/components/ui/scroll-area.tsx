@@ -19,8 +19,11 @@ const ScrollArea = React.forwardRef<
     <ScrollAreaPrimitive.Viewport
       onScroll={onScroll}
       className={cn("h-full rounded-[inherit]", viewportClassName)}
+      style={{ maxWidth: '100%' }}
     >
-      {children}
+      <div style={{ width: '100%', maxWidth: '100%' }}>
+        {children}
+      </div>
     </ScrollAreaPrimitive.Viewport>
     <ScrollBar />
     <ScrollAreaPrimitive.Corner />

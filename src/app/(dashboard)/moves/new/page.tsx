@@ -30,6 +30,7 @@ export default function NewMovePage() {
     benefitAmount: "",
     moveDate: "",
   });
+  const [formError, setFormError] = useState<string | null>(null);
 
   const { data: employees, isLoading: employeesLoading } = trpc.employees.list.useQuery({
     limit: 100,
@@ -45,16 +46,17 @@ export default function NewMovePage() {
     },
     onError: (error) => {
       console.error("Failed to create move:", error);
-      alert(`Failed to create move: ${error.message}`);
+      setFormError(`Failed to create move: ${error.message}`);
     },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!formData.employeeId || !formData.employerId || !formData.originCity || 
+    setFormError(null);
+
+    if (!formData.employeeId || !formData.employerId || !formData.originCity ||
         !formData.destinationCity || !formData.officeLocation) {
-      alert("Please fill in all required fields");
+      setFormError("Please fill in all required fields");
       return;
     }
 
@@ -199,6 +201,12 @@ export default function NewMovePage() {
                 />
               </div>
             </div>
+
+            {formError && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
+                {formError}
+              </div>
+            )}
 
             <div className="flex gap-4 pt-4">
               <Button

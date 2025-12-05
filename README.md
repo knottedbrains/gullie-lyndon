@@ -153,4 +153,13 @@ npm run mcp:financial
 npm run mcp:operations
 ```
 
+---
+
+## Documentation
+
+- [AI Enhanced Chat System](docs/AI_ENHANCED_CHAT.md) - Extended thinking, parallel execution, and tool flows
+- [MCP Servers](docs/MCP.md) - Model Context Protocol server setup and tools
+
+---
+
 Adjust and extend this README as the product direction for Gullie / Lyndon evolves.
